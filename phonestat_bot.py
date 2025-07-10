@@ -2,7 +2,7 @@ import os
 import re
 import zipfile
 import tempfile
-from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
+from telegram import Update
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -27,10 +27,6 @@ def get_token() -> str:
         raise
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    keyboard = [
-        [KeyboardButton("📤 Отправить файл")],
-    ]
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     text = (
         "🔋 Battery Log Analyzer Bot\n\n"
         "Отправьте мне:\n"
@@ -38,18 +34,25 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "2. TXT-файл с названием bugreport*.txt\n\n"
         "Я извлеку данные о батарее (fc и cc)"
     )
-    await update.message.reply_text(text, reply_markup=reply_markup)
+    await update.message.reply_text(text)
 
 async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    # Получаем информацию о файле
+    document = update.message.document
+    file_name = document.file_name.lower()
+    
     with tempfile.TemporaryDirectory() as tmp_dir:
         try:
-            file = await update.message.document.get_file()
-            file_path = os.path.join(tmp_dir, "file")
+            # Скачиваем файл
+            file = await document.get_file()
+            file_path = os.path.join(tmp_dir, file_name)
             await file.download_to_drive(file_path)
             
-            if file_path.endswith(".zip"):
+            # Обработка ZIP
+            if file_name.endswith(".zip"):
                 result = await process_zip(file_path, tmp_dir)
-            elif file_path.endswith(".txt") and "bugreport" in file_path.lower():
+            # Обработка TXT
+            elif "bugreport" in file_name and file_name.endswith(".txt"):
                 result = await process_txt(file_path)
             else:
                 result = "❌ Неподдерживаемый формат. Нужен ZIP или TXT (bugreport*.txt)"
@@ -60,12 +63,18 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             await update.message.reply_text(f"⚠️ Ошибка: {str(e)}")
 
 async def process_zip(zip_path: str, tmp_dir: str) -> str:
-    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-        zip_ref.extractall(tmp_dir)
+    # Создаем отдельную папку для распаковки
+    extract_dir = os.path.join(tmp_dir, "extracted")
+    os.makedirs(extract_dir, exist_ok=True)
     
-    for root, _, files in os.walk(tmp_dir):
+    # Распаковка архива
+    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+        zip_ref.extractall(extract_dir)
+    
+    # Поиск txt-файлов
+    for root, _, files in os.walk(extract_dir):
         for file in files:
-            if file.startswith("bugreport") and file.endswith(".txt"):
+            if file.lower().startswith("bugreport") and file.lower().endswith(".txt"):
                 return await process_txt(os.path.join(root, file))
     
     return "❌ В архиве не найден файл bugreport*.txt"
@@ -82,6 +91,7 @@ async def process_txt(file_path: str) -> str:
                     if match:
                         fc_value = match.group(1)
                         cc_value = match.group(2)
+                        # Не прерываем поиск, чтобы найти последнее вхождение
     
     except Exception as e:
         return f"⚠️ Ошибка чтения файла: {str(e)}"
@@ -106,7 +116,6 @@ def main() -> None:
     
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_file))
-    app.add_handler(MessageHandler(filters.TEXT & filters.Regex(r"^📤 Отправить файл$"), handle_file))
     
     print("Бот запущен...")
     app.run_polling()
