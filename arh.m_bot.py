@@ -5,15 +5,14 @@ import logging
 from datetime import datetime, timedelta
 from telegram import (
     Update,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    ReplyKeyboardRemove
+    ReplyKeyboardMarkup,
+    ReplyKeyboardRemove,
+    KeyboardButton
 )
 from telegram.ext import (
     Application,
     CommandHandler,
     MessageHandler,
-    CallbackQueryHandler,
     ContextTypes,
     ConversationHandler,
     filters
@@ -27,7 +26,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Константы состояний
-SET_BIRTHDAY, SET_WISHLIST, ADMIN_ADD_BIRTHDAY = range(3)
+SET_BIRTHDAY, SET_WISHLIST, UPDATE_WISHLIST, ADMIN_ADD_BIRTHDAY = range(4)
 ADMIN_USERNAME = "mr_jasp"  # Имя пользователя админа
 
 # Файлы для хранения данных
@@ -42,7 +41,7 @@ def load_data(filename):
         try:
             with open(filename, 'r', encoding='utf-8') as f:
                 return json.load(f)
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, FileNotFoundError):
             return {}
     return {}
 
@@ -86,16 +85,19 @@ def censor_text(text):
         text = re.sub(re.escape(word), "*цензура*", text, flags=re.IGNORECASE)
     return text
 
-# Главное меню
+# Клавиатура главного меню (внизу экрана)
 def main_menu_keyboard():
-    keyboard = [
-        [InlineKeyboardButton("🎁 Мой wish-лист", callback_data="view_wishlist")],
-        [InlineKeyboardButton("✏️ Обновить wish-лист", callback_data="update_wishlist")],
-        [InlineKeyboardButton("🗑️ Удалить wish-лист", callback_data="delete_wishlist")],
-        [InlineKeyboardButton("📅 Все дни рождения", callback_data="all_birthdays")],
-        [InlineKeyboardButton("📝 Изменить дату рождения", callback_data="change_birthday")]
-    ]
-    return InlineKeyboardMarkup(keyboard)
+    return ReplyKeyboardMarkup(
+        [
+            [KeyboardButton("🎁 Мой wish-лист")],
+            [KeyboardButton("✏️ Обновить wish-лист")],
+            [KeyboardButton("🗑️ Удалить wish-лист")],
+            [KeyboardButton("📅 Все дни рождения")],
+            [KeyboardButton("📝 Изменить дату рождения")]
+        ],
+        resize_keyboard=True,
+        input_field_placeholder="Выберите действие"
+    )
 
 # Обработчик команды /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -103,15 +105,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.chat.type == "private":
         if str(user.id) not in birthdays:
             await update.message.reply_text(
-                "Привет! Укажи свою дату рождения в формате ДД.ММ.ГГГГ:"
+                "Привет! Укажи свою дату рождения в формате ДД.ММ.ГГГГ:",
+                reply_markup=ReplyKeyboardRemove()
             )
             return SET_BIRTHDAY
         else:
-            await update.message.reply_text(
-                "Выбери действие:",
-                reply_markup=main_menu_keyboard()
-            )
+            await show_main_menu(update, context)
     return ConversationHandler.END
+
+async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "Главное меню:",
+        reply_markup=main_menu_keyboard()
+    )
 
 # Установка даты рождения
 async def set_birthday(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -147,60 +153,92 @@ async def set_wishlist(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return ConversationHandler.END
 
-# Обработчики кнопок
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    if query.data == "view_wishlist":
-        await view_wishlist(query)
-    elif query.data == "update_wishlist":
-        await update_wishlist_start(query)
-    elif query.data == "delete_wishlist":
-        await delete_wishlist(query, context)
-    elif query.data == "all_birthdays":
-        await all_birthdays(query)
-    elif query.data == "change_birthday":
-        await change_birthday_start(query)
-
 # Просмотр wish-листа
-async def view_wishlist(query):
-    user_id = str(query.from_user.id)
+async def view_wishlist(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.message.from_user.id)
     if user_id in wishlists:
-        await query.edit_message_text(f"Твой wish-лист:\n{wishlists[user_id]}")
+        await update.message.reply_text(
+            f"Твой wish-лист:\n{wishlists[user_id]}",
+            reply_markup=main_menu_keyboard()
+        )
     else:
-        await query.edit_message_text("У тебя нет сохраненного wish-листа.")
+        await update.message.reply_text(
+            "У тебя нет сохраненного wish-листа.",
+            reply_markup=main_menu_keyboard()
+        )
+
+# Начало обновления wish-листа
+async def update_wishlist_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.message.from_user.id)
+    current_wishlist = wishlists.get(user_id, "")
+    
+    if current_wishlist:
+        await update.message.reply_text(
+            f"Текущий wish-лист:\n{current_wishlist}\n\nОтправь новый wish-лист:",
+            reply_markup=ReplyKeyboardRemove()
+        )
+    else:
+        await update.message.reply_text(
+            "У тебя еще нет wish-листа. Отправь свой wish-лист:",
+            reply_markup=ReplyKeyboardRemove()
+        )
+    
+    return UPDATE_WISHLIST
 
 # Обновление wish-листа
-async def update_wishlist_start(query):
-    await query.edit_message_text("Отправь новый wish-лист:")
-    return SET_WISHLIST
+async def update_wishlist(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    wishlist = censor_text(update.message.text)
+    
+    wishlists[str(user.id)] = wishlist
+    save_data(wishlists, WISHLISTS_FILE)
+    
+    await update.message.reply_text(
+        "Wish-лист обновлен!",
+        reply_markup=main_menu_keyboard()
+    )
+    return ConversationHandler.END
 
 # Удаление wish-листа
-async def delete_wishlist(query, context):
-    user_id = str(query.from_user.id)
+async def delete_wishlist(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.message.from_user.id)
     if user_id in wishlists:
         del wishlists[user_id]
         save_data(wishlists, WISHLISTS_FILE)
-        await query.edit_message_text("Wish-лист удален!")
+        await update.message.reply_text(
+            "Wish-лист удален!",
+            reply_markup=main_menu_keyboard()
+        )
     else:
-        await query.edit_message_text("У тебя нет сохраненного wish-листа.")
+        await update.message.reply_text(
+            "У тебя нет сохраненного wish-листа.",
+            reply_markup=main_menu_keyboard()
+        )
 
 # Список дней рождений
-async def all_birthdays(query):
+async def all_birthdays(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not birthdays:
-        await query.edit_message_text("Дни рождения не добавлены.")
+        await update.message.reply_text(
+            "Дни рождения не добавлены.",
+            reply_markup=main_menu_keyboard()
+        )
         return
     
     text = "🎂 Дни рождения участников:\n"
     for user_id, data in birthdays.items():
         text += f"\n{data['username']}: {data['date']}"
     
-    await query.edit_message_text(text)
+    await update.message.reply_text(
+        text,
+        reply_markup=main_menu_keyboard()
+    )
 
 # Изменение даты рождения
-async def change_birthday_start(query):
-    await query.edit_message_text("Введи новую дату рождения (ДД.ММ.ГГГГ):")
+async def change_birthday(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "Введи новую дату рождения (ДД.ММ.ГГГГ):",
+        reply_markup=ReplyKeyboardRemove()
+    )
     return SET_BIRTHDAY
 
 # Напоминания
@@ -239,15 +277,18 @@ async def birthday_reminders(context: ContextTypes.DEFAULT_TYPE):
                 # Запрос wish-листа за 1 месяц
                 one_month_before = bday_this_year - timedelta(days=30)
                 if one_month_before == today:
-                    if str(user_id) in wishlists:
+                    user_id_str = str(user_id)
+                    if user_id_str in wishlists:
                         await context.bot.send_message(
                             chat_id=user_id,
-                            text="Не забудь обновить свой wish-лист!"
+                            text="Не забудь обновить свой wish-лист!",
+                            reply_markup=main_menu_keyboard()
                         )
                     else:
                         await context.bot.send_message(
                             chat_id=user_id,
-                            text="Пожалуйста, добавь свой wish-лист!"
+                            text="Пожалуйста, добавь свой wish-лист!",
+                            reply_markup=main_menu_keyboard()
                         )
         except Exception as e:
             logger.error(f"Ошибка напоминания: {e}")
@@ -332,6 +373,27 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return ConversationHandler.END
 
+# Обработчик текстовых сообщений (для меню)
+async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    user_id = str(update.message.from_user.id)
+    
+    if text == "🎁 Мой wish-лист":
+        await view_wishlist(update, context)
+    elif text == "✏️ Обновить wish-лист":
+        await update_wishlist_start(update, context)
+    elif text == "🗑️ Удалить wish-лист":
+        await delete_wishlist(update, context)
+    elif text == "📅 Все дни рождения":
+        await all_birthdays(update, context)
+    elif text == "📝 Изменить дату рождения":
+        await change_birthday(update, context)
+    else:
+        await update.message.reply_text(
+            "Используй меню для навигации",
+            reply_markup=main_menu_keyboard()
+        )
+
 # Основная функция
 def main():
     # Загрузка токена
@@ -363,6 +425,10 @@ def main():
                 MessageHandler(filters.TEXT & ~filters.COMMAND, set_wishlist),
                 CommandHandler("cancel", cancel)
             ],
+            UPDATE_WISHLIST: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, update_wishlist),
+                CommandHandler("cancel", cancel)
+            ],
             ADMIN_ADD_BIRTHDAY: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, admin_save_birthday),
                 CommandHandler("cancel", cancel)
@@ -373,8 +439,8 @@ def main():
     
     # Регистрация обработчиков
     app.add_handler(conv_handler)
-    app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(CommandHandler("admin_add", admin_add_birthday))
+    app.add_handler(MessageHandler(filters.TEXT & filters.ChatType.PRIVATE, menu_handler))
     
     # Ежедневные напоминания в 13:00
     job_queue = app.job_queue
