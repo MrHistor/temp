@@ -277,7 +277,7 @@ async def update_wishlist_start(update: Update, context: ContextTypes.DEFAULT_TY
         f"📝 Твой текущий wish-лист:\n\n{wishlist_text}\n\n"
         "Выбери действие:",
         reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-    
+    )
     return UPDATE_WISHLIST
 
 # Обновление wish-листа
