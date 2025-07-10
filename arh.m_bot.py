@@ -222,31 +222,37 @@ async def finish_wishlist(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 # Просмотр wish-листа
-async def view_wishlist(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.message.from_user.id)
+async def view_wishlist(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id=None):
+    if user_id is None:
+        user_id = str(update.message.from_user.id)
+        is_own = True
+    else:
+        is_own = (user_id == str(update.message.from_user.id))
     
     if user_id in wishlists and wishlists[user_id]:
         wishlist_text = "\n".join([f"{i+1}. {item}" for i, item in enumerate(wishlists[user_id])])
-        await update.message.reply_text(
-            f"📝 Твой wish-лист:\n\n{wishlist_text}",
-            reply_markup=main_menu_keyboard()
-        )
-        
-        # Создаем текстовый файл с wish-листом
-        with open(f"wishlist_{user_id}.txt", "w", encoding="utf-8") as f:
-            f.write(wishlist_text)
-        
-        # Отправляем файл пользователю
-        await update.message.reply_document(
-            document=InputFile(f"wishlist_{user_id}.txt"),
-            caption="Вот твой wish-лист в виде файла",
-            reply_markup=main_menu_keyboard()
-        )
+        if is_own:
+            await update.message.reply_text(
+                f"📝 Твой wish-лист:\n\n{wishlist_text}",
+                reply_markup=main_menu_keyboard()
+            )
+        else:
+            username = birthdays.get(user_id, {}).get('username', 'неизвестный')
+            await update.message.reply_text(
+                f"📝 Wish-лист пользователя {username}:\n\n{wishlist_text}",
+                reply_markup=main_menu_keyboard()
+            )
     else:
-        await update.message.reply_text(
-            "❌ У тебя нет wish-листа. Нажми '✏️ Обновить wish-лист' чтобы создать",
-            reply_markup=main_menu_keyboard()
-        )
+        if is_own:
+            await update.message.reply_text(
+                "❌ У тебя нет wish-листа. Нажми '✏️ Обновить wish-лист' чтобы создать",
+                reply_markup=main_menu_keyboard()
+            )
+        else:
+            await update.message.reply_text(
+                "❌ У этого пользователя нет wish-листа.",
+                reply_markup=main_menu_keyboard()
+            )
 
 # Начало обновления wish-листа
 async def update_wishlist_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
