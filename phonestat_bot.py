@@ -11,11 +11,22 @@ from telegram.ext import (
     filters
 )
 
-# Конфигурация
-BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"  # Замените на ваш токен
+# Функция для получения токена из файла
+def get_token() -> str:
+    try:
+        with open("token.txt", "r") as token_file:
+            token = token_file.read().strip()
+            if not token:
+                raise ValueError("Файл token.txt пустой")
+            return token
+    except FileNotFoundError:
+        print("❌ Файл token.txt не найден")
+        raise
+    except Exception as e:
+        print(f"❌ Ошибка при чтении token.txt: {str(e)}")
+        raise
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Обработчик команды /start с клавиатурой"""
     keyboard = [
         [KeyboardButton("📤 Отправить файл")],
     ]
@@ -30,19 +41,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(text, reply_markup=reply_markup)
 
 async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Обработчик загруженных файлов"""
-    # Создаем временную директорию
     with tempfile.TemporaryDirectory() as tmp_dir:
         try:
-            # Скачиваем файл
             file = await update.message.document.get_file()
             file_path = os.path.join(tmp_dir, "file")
             await file.download_to_drive(file_path)
             
-            # Обработка ZIP
             if file_path.endswith(".zip"):
                 result = await process_zip(file_path, tmp_dir)
-            # Обработка TXT
             elif file_path.endswith(".txt") and "bugreport" in file_path.lower():
                 result = await process_txt(file_path)
             else:
@@ -54,12 +60,9 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             await update.message.reply_text(f"⚠️ Ошибка: {str(e)}")
 
 async def process_zip(zip_path: str, tmp_dir: str) -> str:
-    """Обработка ZIP-архива"""
-    # Распаковка архива
     with zipfile.ZipFile(zip_path, 'r') as zip_ref:
         zip_ref.extractall(tmp_dir)
     
-    # Поиск txt-файлов
     for root, _, files in os.walk(tmp_dir):
         for file in files:
             if file.startswith("bugreport") and file.endswith(".txt"):
@@ -68,7 +71,6 @@ async def process_zip(zip_path: str, tmp_dir: str) -> str:
     return "❌ В архиве не найден файл bugreport*.txt"
 
 async def process_txt(file_path: str) -> str:
-    """Построчная обработка TXT-файла"""
     fc_value = cc_value = None
     pattern = re.compile(r'healthd.*?fc=(\d+).*?cc=(\d+)')
     
@@ -93,13 +95,18 @@ async def process_txt(file_path: str) -> str:
     return "❌ Данные о батарее не найдены"
 
 def main() -> None:
-    """Запуск бота"""
-    app = Application.builder().token(BOT_TOKEN).build()
+    try:
+        token = get_token()
+    except Exception as e:
+        print(f"❌ Не удалось запустить бота: {str(e)}")
+        print("Создайте файл token.txt с токеном бота")
+        return
+
+    app = Application.builder().token(token).build()
     
-    # Регистрация обработчиков
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_file))
-    app.add_handler(MessageHandler(filters.TEXT & filters.Regex("📤 Отправить файл"), handle_file))
+    app.add_handler(MessageHandler(filters.TEXT & filters.Regex(r"^📤 Отправить файл$"), handle_file))
     
     print("Бот запущен...")
     app.run_polling()
