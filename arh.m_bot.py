@@ -267,11 +267,13 @@ async def update_wishlist_start(update: Update, context: ContextTypes.DEFAULT_TY
         context.user_data['wishlist_creation'] = True
         return ADD_WISHLIST_ITEM
     
-    # Показываем текущий wish-лист
+    # Показываем текущий wish-лист с инструкцией
     wishlist_text = "\n".join([f"{i+1}. {item}" for i, item in enumerate(wishlists[user_id])])
     await update.message.reply_text(
         f"📝 Твой текущий wish-лист:\n\n{wishlist_text}\n\n"
-        "Отправь новую позицию для добавления или нажми /done для завершения",
+        "Чтобы удалить позицию, введи её номер (например, '1') или 'удалить 1'.\n"
+        "Чтобы добавить новую позицию, просто введи текст.\n"
+        "Завершить обновление - /done",
         reply_markup=ReplyKeyboardMarkup(
             [[KeyboardButton("/done")]],
             resize_keyboard=True
@@ -285,13 +287,37 @@ async def update_wishlist_start(update: Update, context: ContextTypes.DEFAULT_TY
 async def update_wishlist(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     user_id = str(user.id)
-    item = censor_text(update.message.text.strip())
-    
-    # Инициализируем wish-лист, если его нет
-    if user_id not in wishlists:
-        wishlists[user_id] = []
-    
-    # Добавляем новую позицию
+    text = update.message.text.strip()
+
+    # Проверяем, не хочет ли пользователь удалить позицию
+    delete_mode = False
+    match = re.match(r'^(удалить\s+)?(\d+)$', text, re.IGNORECASE)
+    if match:
+        # Извлекаем номер позиции
+        pos = int(match.group(2)) - 1  # переводим в индекс
+        if 0 <= pos < len(wishlists[user_id]):
+            # Удаляем позицию
+            removed_item = wishlists[user_id].pop(pos)
+            save_data(wishlists, WISHLISTS_FILE)
+            await update.message.reply_text(
+                f"✅ Позиция {pos+1} удалена: {removed_item}",
+                reply_markup=ReplyKeyboardMarkup(
+                    [[KeyboardButton("/done")]],
+                    resize_keyboard=True
+                )
+            )
+            # Показываем обновленный список
+            wishlist_text = "\n".join([f"{i+1}. {item}" for i, item in enumerate(wishlists[user_id])])
+            await update.message.reply_text(
+                f"Обновленный wish-лист:\n\n{wishlist_text}"
+            )
+            return UPDATE_WISHLIST
+        else:
+            await update.message.reply_text("❌ Некорректный номер позиции.")
+            return UPDATE_WISHLIST
+
+    # Иначе добавляем как новую позицию
+    item = censor_text(text)
     wishlists[user_id].append(item)
     save_data(wishlists, WISHLISTS_FILE)
     
@@ -377,15 +403,47 @@ async def all_birthdays(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
+    # Формируем список пользователей и сохраняем в user_data
+    users_list = []
     text = "🎂 Дни рождения участников:\n\n"
-    for user_id, data in birthdays.items():
-        text += f"• {data['username']}: {data['date']}\n"
+    for i, (user_id, data) in enumerate(birthdays.items(), 1):
+        text += f"{i}. {data['username']}: {data['date']}\n"
+        users_list.append((user_id, data['username'], data['date']))
     
+    # Сохраняем список в user_data для последующего использования
+    context.user_data['birthday_list'] = users_list
+    
+    text += "\nЧтобы посмотреть wish-лист участника, введите /wishlist <номер>"
     await update.message.reply_text(
         text,
         reply_markup=main_menu_keyboard()
     )
 
+async def wishlist_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Проверяем, есть ли аргумент
+    if not context.args:
+        await update.message.reply_text("❌ Укажите номер участника: /wishlist <номер>")
+        return
+    
+    try:
+        num = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("❌ Номер должен быть целым числом")
+        return
+    
+    # Получаем сохраненный список из user_data
+    if 'birthday_list' not in context.user_data:
+        await update.message.reply_text("❌ Список участников устарел. Запросите список дней рождений снова.")
+        return
+    
+    users_list = context.user_data['birthday_list']
+    if num < 1 or num > len(users_list):
+        await update.message.reply_text("❌ Нет участника с таким номером")
+        return
+    
+    user_id = users_list[num-1][0]
+    await view_wishlist(update, context, user_id=user_id)
+    
 # Напоминания
 async def birthday_reminders(context: ContextTypes.DEFAULT_TYPE):
     global GROUP_CHAT_ID
@@ -581,6 +639,7 @@ def main():
     app.add_handler(CommandHandler("admin_add", admin_add_birthday))
     app.add_handler(MessageHandler(filters.TEXT & filters.ChatType.PRIVATE, menu_handler))
     app.add_handler(MessageHandler(filters.Document.TXT & filters.ChatType.PRIVATE, handle_wishlist_file))
+    app.add_handler(CommandHandler("wishlist", wishlist_command))
     
     # Ежедневные напоминания в 13:00
     job_queue = app.job_queue
