@@ -27,8 +27,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Константы состояний
-SET_BIRTHDAY, SET_WISHLIST, ADD_WISHLIST_ITEM, UPDATE_WISHLIST = range(4)
-ADMIN_USERNAME = "mr_jasp"  # Имя пользователя админа
+#SET_BIRTHDAY, SET_WISHLIST, ADD_WISHLIST_ITEM, UPDATE_WISHLIST = range(4)
+#ADMIN_USERNAME = "mr_jasp"  # Имя пользователя админа
+SET_BIRTHDAY, ADD_WISHLIST_ITEM, UPDATE_WISHLIST, ADMIN_ADD_BIRTHDAY = range(4)
+ADMIN_USERNAME = "mr_jasp"
 
 # Файлы для хранения данных
 BIRTHDAYS_FILE = "birthdays.json"
