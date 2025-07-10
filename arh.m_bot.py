@@ -7,7 +7,8 @@ from telegram import (
     Update,
     ReplyKeyboardMarkup,
     ReplyKeyboardRemove,
-    KeyboardButton
+    KeyboardButton,
+    InputFile
 )
 from telegram.ext import (
     Application,
@@ -26,7 +27,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Константы состояний
-SET_BIRTHDAY, SET_WISHLIST, UPDATE_WISHLIST, ADMIN_ADD_BIRTHDAY = range(4)
+SET_BIRTHDAY, SET_WISHLIST, ADD_WISHLIST_ITEM, UPDATE_WISHLIST = range(4)
 ADMIN_USERNAME = "mr_jasp"  # Имя пользователя админа
 
 # Файлы для хранения данных
@@ -92,20 +93,52 @@ def main_menu_keyboard():
             [KeyboardButton("🎁 Мой wish-лист")],
             [KeyboardButton("✏️ Обновить wish-лист")],
             [KeyboardButton("🗑️ Удалить wish-лист")],
-            [KeyboardButton("📅 Все дни рождения")],
-            [KeyboardButton("📝 Изменить дату рождения")]
+            [KeyboardButton("📅 Все дни рождения")]
         ],
         resize_keyboard=True,
         input_field_placeholder="Выберите действие"
     )
 
+# Приветственное сообщение
+WELCOME_MESSAGE = """
+🎉 *Добро пожаловать в Birthday Bot!* 🎂
+
+Я помогу вам никогда не забывать о днях рождения друзей и коллег. Вот что я умею:
+
+🔔 *Напоминания:*
+- За 2 недели до дня рождения
+- В сам день рождения
+- За месяц до ДР напомню имениннику обновить wish-лист
+
+📝 *Wish-лист:*
+- Создайте свой список желаний
+- Обновляйте его в любое время
+- Просматривайте списки других участников
+
+👥 *Для новых участников:*
+- Я автоматически запрошу дату рождения
+- Помогу создать wish-лист
+
+⏰ *Все напоминания приходят в 13:00*
+
+Начните с команды /start в личных сообщениях!
+"""
+
 # Обработчик команды /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
+    
     if update.message.chat.type == "private":
+        # Отправляем приветственное сообщение
+        await update.message.reply_text(
+            WELCOME_MESSAGE,
+            parse_mode="Markdown",
+            reply_markup=ReplyKeyboardRemove()
+        )
+        
         if str(user.id) not in birthdays:
             await update.message.reply_text(
-                "Привет! Укажи свою дату рождения в формате ДД.ММ.ГГГГ:",
+                "📅 Укажи свою дату рождения в формате ДД.ММ.ГГГГ:",
                 reply_markup=ReplyKeyboardRemove()
             )
             return SET_BIRTHDAY
@@ -125,7 +158,7 @@ async def set_birthday(update: Update, context: ContextTypes.DEFAULT_TYPE):
     date_str = update.message.text.strip()
     
     if not is_valid_birthdate(date_str):
-        await update.message.reply_text("Некорректная дата. Попробуй снова (ДД.ММ.ГГГГ):")
+        await update.message.reply_text("❌ Некорректная дата. Попробуй снова (ДД.ММ.ГГГГ):")
         return SET_BIRTHDAY
     
     birthdays[str(user.id)] = {
@@ -135,68 +168,180 @@ async def set_birthday(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_data(birthdays, BIRTHDAYS_FILE)
     
     await update.message.reply_text(
-        "Дата сохранена! Теперь отправь свой wish-лист:"
+        "✅ Дата рождения сохранена!\n\n"
+        "📝 Теперь давай создадим твой wish-лист. "
+        "Отправь первую позицию для твоего списка желаний:",
+        reply_markup=ReplyKeyboardRemove()
     )
-    return SET_WISHLIST
+    return ADD_WISHLIST_ITEM
 
-# Установка wish-листа
-async def set_wishlist(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# Добавление позиции в wish-лист
+async def add_wishlist_item(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    wishlist = censor_text(update.message.text)
+    user_id = str(user.id)
+    item = censor_text(update.message.text.strip())
     
-    wishlists[str(user.id)] = wishlist
+    # Инициализируем wish-лист, если его нет
+    if user_id not in wishlists:
+        wishlists[user_id] = []
+    
+    # Добавляем новую позицию
+    wishlists[user_id].append(item)
     save_data(wishlists, WISHLISTS_FILE)
     
+    # Предлагаем добавить еще или завершить
     await update.message.reply_text(
-        "Wish-лист сохранен!",
-        reply_markup=main_menu_keyboard()
+        f"✅ Позиция добавлена: {item}\n\n"
+        "Отправь следующую позицию или нажми /done для завершения",
+        reply_markup=ReplyKeyboardMarkup(
+            [[KeyboardButton("/done")]],
+            resize_keyboard=True,
+            one_time_keyboard=True
+        )
     )
+    return ADD_WISHLIST_ITEM
+
+# Завершение создания wish-листа
+async def finish_wishlist(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    user_id = str(user.id)
+    
+    if user_id in wishlists and wishlists[user_id]:
+        await update.message.reply_text(
+            "🎉 Твой wish-лист создан!",
+            reply_markup=main_menu_keyboard()
+        )
+    else:
+        await update.message.reply_text(
+            "❌ Ты не добавил ни одной позиции в wish-лист",
+            reply_markup=main_menu_keyboard()
+        )
+    
     return ConversationHandler.END
 
 # Просмотр wish-листа
 async def view_wishlist(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.message.from_user.id)
-    if user_id in wishlists:
+    
+    if user_id in wishlists and wishlists[user_id]:
+        wishlist_text = "\n".join([f"{i+1}. {item}" for i, item in enumerate(wishlists[user_id])])
         await update.message.reply_text(
-            f"Твой wish-лист:\n{wishlists[user_id]}",
+            f"📝 Твой wish-лист:\n\n{wishlist_text}",
+            reply_markup=main_menu_keyboard()
+        )
+        
+        # Создаем текстовый файл с wish-листом
+        with open(f"wishlist_{user_id}.txt", "w", encoding="utf-8") as f:
+            f.write(wishlist_text)
+        
+        # Отправляем файл пользователю
+        await update.message.reply_document(
+            document=InputFile(f"wishlist_{user_id}.txt"),
+            caption="Вот твой wish-лист в виде файла",
             reply_markup=main_menu_keyboard()
         )
     else:
         await update.message.reply_text(
-            "У тебя нет сохраненного wish-листа.",
+            "❌ У тебя нет wish-листа. Нажми '✏️ Обновить wish-лист' чтобы создать",
             reply_markup=main_menu_keyboard()
         )
 
 # Начало обновления wish-листа
 async def update_wishlist_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.message.from_user.id)
-    current_wishlist = wishlists.get(user_id, "")
     
-    if current_wishlist:
+    # Если нет wish-листа, начинаем создание
+    if user_id not in wishlists or not wishlists[user_id]:
         await update.message.reply_text(
-            f"Текущий wish-лист:\n{current_wishlist}\n\nОтправь новый wish-лист:",
+            "📝 У тебя еще нет wish-листа. Отправь первую позицию:",
             reply_markup=ReplyKeyboardRemove()
         )
-    else:
-        await update.message.reply_text(
-            "У тебя еще нет wish-листа. Отправь свой wish-лист:",
-            reply_markup=ReplyKeyboardRemove()
-        )
+        context.user_data['wishlist_creation'] = True
+        return ADD_WISHLIST_ITEM
     
+    # Показываем текущий wish-лист
+    wishlist_text = "\n".join([f"{i+1}. {item}" for i, item in enumerate(wishlists[user_id])])
+    await update.message.reply_text(
+        f"📝 Твой текущий wish-лист:\n\n{wishlist_text}\n\n"
+        "Отправь новую позицию для добавления или нажми /done для завершения",
+        reply_markup=ReplyKeyboardMarkup(
+            [[KeyboardButton("/done")]],
+            resize_keyboard=True
+        )
+    )
+    
+    context.user_data['wishlist_creation'] = False
     return UPDATE_WISHLIST
 
 # Обновление wish-листа
 async def update_wishlist(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    wishlist = censor_text(update.message.text)
+    user_id = str(user.id)
+    item = censor_text(update.message.text.strip())
     
-    wishlists[str(user.id)] = wishlist
+    # Инициализируем wish-лист, если его нет
+    if user_id not in wishlists:
+        wishlists[user_id] = []
+    
+    # Добавляем новую позицию
+    wishlists[user_id].append(item)
     save_data(wishlists, WISHLISTS_FILE)
     
     await update.message.reply_text(
-        "Wish-лист обновлен!",
-        reply_markup=main_menu_keyboard()
+        f"✅ Позиция добавлена: {item}\n\n"
+        "Отправь следующую позицию или нажми /done для завершения",
+        reply_markup=ReplyKeyboardMarkup(
+            [[KeyboardButton("/done")]],
+            resize_keyboard=True
+        )
     )
+    return UPDATE_WISHLIST
+
+# Обработка файлов wish-листа
+async def handle_wishlist_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    user_id = str(user.id)
+    
+    # Получаем файл
+    file = await update.message.document.get_file()
+    await file.download_to_drive(f"wishlist_{user_id}_temp.txt")
+    
+    # Читаем содержимое файла
+    try:
+        with open(f"wishlist_{user_id}_temp.txt", "r", encoding="utf-8") as f:
+            content = f.read().splitlines()
+        
+        # Фильтруем пустые строки
+        items = [censor_text(line.strip()) for line in content if line.strip()]
+        
+        if items:
+            wishlists[user_id] = items
+            save_data(wishlists, WISHLISTS_FILE)
+            
+            # Форматируем для показа
+            wishlist_text = "\n".join([f"{i+1}. {item}" for i, item in enumerate(items)])
+            
+            await update.message.reply_text(
+                "✅ Wish-лист успешно обновлен из файла!\n\n"
+                f"Твой новый wish-лист:\n\n{wishlist_text}",
+                reply_markup=main_menu_keyboard()
+            )
+        else:
+            await update.message.reply_text(
+                "❌ Файл не содержит данных. Попробуйте снова.",
+                reply_markup=main_menu_keyboard()
+            )
+    except Exception as e:
+        logger.error(f"Ошибка обработки файла: {e}")
+        await update.message.reply_text(
+            "❌ Ошибка обработки файла. Попробуйте другой формат.",
+            reply_markup=main_menu_keyboard()
+        )
+    
+    # Удаляем временный файл
+    if os.path.exists(f"wishlist_{user_id}_temp.txt"):
+        os.remove(f"wishlist_{user_id}_temp.txt")
+    
     return ConversationHandler.END
 
 # Удаление wish-листа
@@ -206,12 +351,12 @@ async def delete_wishlist(update: Update, context: ContextTypes.DEFAULT_TYPE):
         del wishlists[user_id]
         save_data(wishlists, WISHLISTS_FILE)
         await update.message.reply_text(
-            "Wish-лист удален!",
+            "✅ Wish-лист удален!",
             reply_markup=main_menu_keyboard()
         )
     else:
         await update.message.reply_text(
-            "У тебя нет сохраненного wish-листа.",
+            "❌ У тебя нет wish-листа для удаления.",
             reply_markup=main_menu_keyboard()
         )
 
@@ -219,27 +364,19 @@ async def delete_wishlist(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def all_birthdays(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not birthdays:
         await update.message.reply_text(
-            "Дни рождения не добавлены.",
+            "❌ Дни рождения не добавлены.",
             reply_markup=main_menu_keyboard()
         )
         return
     
-    text = "🎂 Дни рождения участников:\n"
+    text = "🎂 Дни рождения участников:\n\n"
     for user_id, data in birthdays.items():
-        text += f"\n{data['username']}: {data['date']}"
+        text += f"• {data['username']}: {data['date']}\n"
     
     await update.message.reply_text(
         text,
         reply_markup=main_menu_keyboard()
     )
-
-# Изменение даты рождения
-async def change_birthday(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "Введи новую дату рождения (ДД.ММ.ГГГГ):",
-        reply_markup=ReplyKeyboardRemove()
-    )
-    return SET_BIRTHDAY
 
 # Напоминания
 async def birthday_reminders(context: ContextTypes.DEFAULT_TYPE):
@@ -278,18 +415,11 @@ async def birthday_reminders(context: ContextTypes.DEFAULT_TYPE):
                 one_month_before = bday_this_year - timedelta(days=30)
                 if one_month_before == today:
                     user_id_str = str(user_id)
-                    if user_id_str in wishlists:
-                        await context.bot.send_message(
-                            chat_id=user_id,
-                            text="Не забудь обновить свой wish-лист!",
-                            reply_markup=main_menu_keyboard()
-                        )
-                    else:
-                        await context.bot.send_message(
-                            chat_id=user_id,
-                            text="Пожалуйста, добавь свой wish-лист!",
-                            reply_markup=main_menu_keyboard()
-                        )
+                    await context.bot.send_message(
+                        chat_id=user_id,
+                        text="🎁 Не забудь обновить свой wish-лист!",
+                        reply_markup=main_menu_keyboard()
+                    )
         except Exception as e:
             logger.error(f"Ошибка напоминания: {e}")
 
@@ -297,7 +427,7 @@ async def birthday_reminders(context: ContextTypes.DEFAULT_TYPE):
 async def admin_add_birthday(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if user.username != ADMIN_USERNAME:
-        await update.message.reply_text("Доступ запрещен!")
+        await update.message.reply_text("❌ Доступ запрещен!")
         return ConversationHandler.END
     
     await update.message.reply_text(
@@ -307,7 +437,7 @@ async def admin_add_birthday(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def admin_save_birthday(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message.reply_to_message:
-        await update.message.reply_text("Ошибка: нужно переслать сообщение!")
+        await update.message.reply_text("❌ Ошибка: нужно переслать сообщение!")
         return ADMIN_ADD_BIRTHDAY
     
     try:
@@ -321,7 +451,7 @@ async def admin_save_birthday(update: Update, context: ContextTypes.DEFAULT_TYPE
         date_str = update.message.text.strip()
         
         if not is_valid_birthdate(date_str):
-            await update.message.reply_text("Некорректная дата!")
+            await update.message.reply_text("❌ Некорректная дата!")
             return ADMIN_ADD_BIRTHDAY
         
         birthdays[user_id] = {
@@ -329,10 +459,10 @@ async def admin_save_birthday(update: Update, context: ContextTypes.DEFAULT_TYPE
             "username": user.username or user.full_name
         }
         save_data(birthdays, BIRTHDAYS_FILE)
-        await update.message.reply_text("Данные сохранены!")
+        await update.message.reply_text("✅ Данные сохранены!")
     except Exception as e:
         logger.error(f"Ошибка сохранения: {e}")
-        await update.message.reply_text(f"Ошибка: {str(e)}")
+        await update.message.reply_text(f"❌ Ошибка: {str(e)}")
     
     return ConversationHandler.END
 
@@ -345,7 +475,7 @@ async def new_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
         GROUP_CHAT_ID = update.message.chat.id
         save_group_chat_id(GROUP_CHAT_ID)
         await update.message.reply_text(
-            "Бот активирован! Напишите мне в ЛС /start для регистрации."
+            "🤖 Бот активирован! Напишите мне в ЛС /start для регистрации."
         )
         return
     
@@ -355,20 +485,19 @@ async def new_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
             try:
                 await context.bot.send_message(
                     chat_id=member.id,
-                    text="Привет! Я бот для учета дней рождения. "
-                         "Напиши мне /start в личных сообщениях, "
-                         "чтобы зарегистрировать свой день рождения."
+                    text=WELCOME_MESSAGE,
+                    parse_mode="Markdown"
                 )
             except Exception as e:
                 logger.error(f"Не удалось отправить сообщение: {e}")
                 await update.message.reply_text(
-                    f"{member.full_name}, напиши мне в ЛС /start для регистрации!"
+                    f"👋 {member.full_name}, напиши мне в ЛС /start для регистрации!"
                 )
 
 # Отмена операции
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "Операция отменена",
+        "❌ Операция отменена",
         reply_markup=main_menu_keyboard()
     )
     return ConversationHandler.END
@@ -386,8 +515,6 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await delete_wishlist(update, context)
     elif text == "📅 Все дни рождения":
         await all_birthdays(update, context)
-    elif text == "📝 Изменить дату рождения":
-        await change_birthday(update, context)
     else:
         await update.message.reply_text(
             "Используй меню для навигации",
@@ -421,13 +548,17 @@ def main():
                 MessageHandler(filters.TEXT & ~filters.COMMAND, set_birthday),
                 CommandHandler("cancel", cancel)
             ],
-            SET_WISHLIST: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, set_wishlist),
-                CommandHandler("cancel", cancel)
+            ADD_WISHLIST_ITEM: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, add_wishlist_item),
+                CommandHandler("done", finish_wishlist),
+                CommandHandler("cancel", cancel),
+                MessageHandler(filters.Document.TXT, handle_wishlist_file)
             ],
             UPDATE_WISHLIST: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, update_wishlist),
-                CommandHandler("cancel", cancel)
+                CommandHandler("done", finish_wishlist),
+                CommandHandler("cancel", cancel),
+                MessageHandler(filters.Document.TXT, handle_wishlist_file)
             ],
             ADMIN_ADD_BIRTHDAY: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, admin_save_birthday),
@@ -441,6 +572,7 @@ def main():
     app.add_handler(conv_handler)
     app.add_handler(CommandHandler("admin_add", admin_add_birthday))
     app.add_handler(MessageHandler(filters.TEXT & filters.ChatType.PRIVATE, menu_handler))
+    app.add_handler(MessageHandler(filters.Document.TXT & filters.ChatType.PRIVATE, handle_wishlist_file))
     
     # Ежедневные напоминания в 13:00
     job_queue = app.job_queue
