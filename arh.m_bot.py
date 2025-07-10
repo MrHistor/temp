@@ -14,6 +14,18 @@ from telegram.ext import (
 from telegram.constants import ParseMode
 import re
 
+# Функция для загрузки токена из файла
+def load_token():
+    try:
+        with open('token.txt', 'r') as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        print("Файл token.txt не найден. Создайте файл и поместите в него токен бота.")
+        exit(1)
+    except Exception as e:
+        print(f"Ошибка при чтении токена: {e}")
+        exit(1)
+
 # Константы для состояний ConversationHandler
 GET_BIRTHDATE, GET_WISHLIST, UPDATE_WISHLIST, UPDATE_BIRTHDATE = range(4)
 
@@ -271,8 +283,11 @@ def new_member(update: Update, context: CallbackContext) -> None:
 
 # Основная функция
 def main() -> None:
+    # Загрузка токена из файла
+    TOKEN = load_token()
+    
     # Создаем Updater и передаем ему токен вашего бота
-    updater = Updater("YOUR_TELEGRAM_BOT_TOKEN", use_context=True)
+    updater = Updater(TOKEN, use_context=True)
 
     # Получаем диспетчер для регистрации обработчиков
     dp = updater.dispatcher
@@ -301,6 +316,7 @@ def main() -> None:
     job_queue.run_daily(check_birthdays, time=datetime.time(hour=13, minute=0))
 
     # Запускаем бота
+    print("Бот запущен...")
     updater.start_polling()
     updater.idle()
 
