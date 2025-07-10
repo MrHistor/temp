@@ -157,7 +157,7 @@ async def show_my_wishlist(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     wishes = "\n".join(
         f"{i+1}. {wish}" for i, wish in enumerate(wishlists[str(user.id)])
-    
+    )
     await update.message.reply_text(
         f"📝 Твой wish-лист:\n\n{wishes}",
         reply_markup=get_main_keyboard(),
