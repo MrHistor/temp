@@ -3,15 +3,14 @@ import json
 from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
-    Updater,
+    Application,
     CommandHandler,
     CallbackQueryHandler,
     MessageHandler,
     filters,
-    CallbackContext,
+    ContextTypes,
     ConversationHandler,
 )
-from telegram.constants import ParseMode
 import re
 
 # Функция для загрузки токена из файла
@@ -66,54 +65,54 @@ def is_clean(text):
     return True
 
 # Обработчик команды /start
-def start(update: Update, context: CallbackContext) -> None:
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_id = str(update.effective_user.id)
     
     if user_id not in birthdays:
-        update.message.reply_text(
+        await update.message.reply_text(
             "Привет! Я бот для напоминания о днях рождения.\n"
             "Пожалуйста, введите свою дату рождения в формате ДД.ММ.ГГГГ:"
         )
         return GET_BIRTHDATE
     else:
-        show_main_menu(update, context)
+        await show_main_menu(update, context)
         return ConversationHandler.END
 
 # Получение даты рождения
-def get_birthdate(update: Update, context: CallbackContext) -> int:
+async def get_birthdate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_id = str(update.effective_user.id)
     text = update.message.text
     
     if not is_valid_date(text):
-        update.message.reply_text("Некорректный формат даты. Пожалуйста, введите дату в формате ДД.ММ.ГГГГ:")
+        await update.message.reply_text("Некорректный формат даты. Пожалуйста, введите дату в формате ДД.ММ.ГГГГ:")
         return GET_BIRTHDATE
     
     birthdays[user_id] = text
     save_data(BIRTHDAYS_FILE, birthdays)
     
-    update.message.reply_text(
+    await update.message.reply_text(
         "Спасибо! Теперь введите ваш wishlist (что бы вы хотели получить в подарок):"
     )
     return GET_WISHLIST
 
 # Получение wishlist
-def get_wishlist(update: Update, context: CallbackContext) -> int:
+async def get_wishlist(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_id = str(update.effective_user.id)
     text = update.message.text
     
     if not is_clean(text):
-        update.message.reply_text("Ваше сообщение содержит запрещенные слова. Пожалуйста, измените текст:")
+        await update.message.reply_text("Ваше сообщение содержит запрещенные слова. Пожалуйста, измените текст:")
         return GET_WISHLIST
     
     wishlists[user_id] = text
     save_data(WISHLISTS_FILE, wishlists)
     
-    update.message.reply_text("Спасибо! Ваши данные сохранены.")
-    show_main_menu(update, context)
+    await update.message.reply_text("Спасибо! Ваши данные сохранены.")
+    await show_main_menu(update, context)
     return ConversationHandler.END
 
 # Показ главного меню
-def show_main_menu(update: Update, context: CallbackContext) -> None:
+async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     keyboard = [
         [
             InlineKeyboardButton("Посмотреть wishlist", callback_data='view_wishlist'),
@@ -128,87 +127,87 @@ def show_main_menu(update: Update, context: CallbackContext) -> None:
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    update.message.reply_text("Выберите действие:", reply_markup=reply_markup)
+    await update.message.reply_text("Выберите действие:", reply_markup=reply_markup)
 
 # Обработчик кнопок
-def button_handler(update: Update, context: CallbackContext) -> None:
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
-    query.answer()
+    await query.answer()
     user_id = str(query.from_user.id)
     
     if query.data == 'view_wishlist':
         if user_id in wishlists:
-            query.edit_message_text(f"Ваш wishlist:\n{wishlists[user_id]}")
+            await query.edit_message_text(f"Ваш wishlist:\n{wishlists[user_id]}")
         else:
-            query.edit_message_text("У вас нет сохраненного wishlist.")
+            await query.edit_message_text("У вас нет сохраненного wishlist.")
     
     elif query.data == 'update_wishlist':
-        query.edit_message_text("Пожалуйста, введите новый wishlist:")
+        await query.edit_message_text("Пожалуйста, введите новый wishlist:")
         return UPDATE_WISHLIST
     
     elif query.data == 'delete_wishlist':
         if user_id in wishlists:
             del wishlists[user_id]
             save_data(WISHLISTS_FILE, wishlists)
-            query.edit_message_text("Ваш wishlist удален.")
+            await query.edit_message_text("Ваш wishlist удален.")
         else:
-            query.edit_message_text("У вас нет сохраненного wishlist.")
+            await query.edit_message_text("У вас нет сохраненного wishlist.")
     
     elif query.data == 'view_birthdays':
         if not birthdays:
-            query.edit_message_text("Пока нет сохраненных дней рождения.")
+            await query.edit_message_text("Пока нет сохраненных дней рождения.")
         else:
             text = "Дни рождения участников:\n"
             for uid, date in birthdays.items():
                 try:
-                    user = context.bot.get_chat(uid)
+                    user = await context.bot.get_chat(uid)
                     name = user.first_name or user.username or "Неизвестный пользователь"
                     text += f"{name}: {date}\n"
                 except:
                     text += f"Пользователь {uid}: {date}\n"
-            query.edit_message_text(text)
+            await query.edit_message_text(text)
     
     elif query.data == 'update_birthdate':
-        query.edit_message_text("Пожалуйста, введите новую дату рождения в формате ДД.ММ.ГГГГ:")
+        await query.edit_message_text("Пожалуйста, введите новую дату рождения в формате ДД.ММ.ГГГГ:")
         return UPDATE_BIRTHDATE
     
-    show_main_menu_from_query(query, context)
+    await show_main_menu_from_query(query, context)
     return ConversationHandler.END
 
 # Обновление wishlist
-def update_wishlist(update: Update, context: CallbackContext) -> int:
+async def update_wishlist(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_id = str(update.effective_user.id)
     text = update.message.text
     
     if not is_clean(text):
-        update.message.reply_text("Ваше сообщение содержит запрещенные слова. Пожалуйста, измените текст:")
+        await update.message.reply_text("Ваше сообщение содержит запрещенные слова. Пожалуйста, измените текст:")
         return UPDATE_WISHLIST
     
     wishlists[user_id] = text
     save_data(WISHLISTS_FILE, wishlists)
     
-    update.message.reply_text("Ваш wishlist обновлен!")
-    show_main_menu(update, context)
+    await update.message.reply_text("Ваш wishlist обновлен!")
+    await show_main_menu(update, context)
     return ConversationHandler.END
 
 # Обновление даты рождения
-def update_birthdate(update: Update, context: CallbackContext) -> int:
+async def update_birthdate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_id = str(update.effective_user.id)
     text = update.message.text
     
     if not is_valid_date(text):
-        update.message.reply_text("Некорректный формат даты. Пожалуйста, введите дату в формате ДД.ММ.ГГГГ:")
+        await update.message.reply_text("Некорректный формат даты. Пожалуйста, введите дату в формате ДД.ММ.ГГГГ:")
         return UPDATE_BIRTHDATE
     
     birthdays[user_id] = text
     save_data(BIRTHDAYS_FILE, birthdays)
     
-    update.message.reply_text("Ваша дата рождения обновлена!")
-    show_main_menu(update, context)
+    await update.message.reply_text("Ваша дата рождения обновлена!")
+    await show_main_menu(update, context)
     return ConversationHandler.END
 
 # Показ главного меню из query
-def show_main_menu_from_query(query: Update.callback_query, context: CallbackContext) -> None:
+async def show_main_menu_from_query(query: Update.callback_query, context: ContextTypes.DEFAULT_TYPE) -> None:
     keyboard = [
         [
             InlineKeyboardButton("Посмотреть wishlist", callback_data='view_wishlist'),
@@ -223,10 +222,10 @@ def show_main_menu_from_query(query: Update.callback_query, context: CallbackCon
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    query.message.reply_text("Выберите действие:", reply_markup=reply_markup)
+    await query.message.reply_text("Выберите действие:", reply_markup=reply_markup)
 
 # Проверка дней рождения и отправка напоминаний
-def check_birthdays(context: CallbackContext) -> None:
+async def check_birthdays(context: ContextTypes.DEFAULT_TYPE) -> None:
     now = datetime.now()
     today = now.strftime('%d.%m')
     year = now.strftime('%Y')
@@ -242,55 +241,52 @@ def check_birthdays(context: CallbackContext) -> None:
             # Напоминание за 2 недели
             if birthdate_this_year == future_date:
                 try:
-                    user = context.bot.get_chat(user_id)
+                    user = await context.bot.get_chat(user_id)
                     name = user.first_name or user.username or "Участник"
                     message = (
                         f"Через 2 недели ({birthdate_str[:-5]}) день рождения у {name}!\n"
                         f"Wishlist: {wishlists.get(user_id, 'не указан')}"
                     )
-                    context.bot.send_message(chat_id=user_id, text=message)
+                    await context.bot.send_message(chat_id=user_id, text=message)
                 except Exception as e:
                     print(f"Ошибка при отправке напоминания пользователю {user_id}: {e}")
             
             # Напоминание в день рождения
             elif birthdate_this_year == today:
                 try:
-                    user = context.bot.get_chat(user_id)
+                    user = await context.bot.get_chat(user_id)
                     name = user.first_name or user.username or "Участник"
                     message = f"Сегодня день рождения у {name}! 🎉🎂\nПоздравьте их!"
-                    context.bot.send_message(chat_id=user_id, text=message)
+                    await context.bot.send_message(chat_id=user_id, text=message)
                 except Exception as e:
                     print(f"Ошибка при отправке поздравления пользователю {user_id}: {e}")
         except ValueError:
             print(f"Некорректная дата рождения для пользователя {user_id}: {birthdate_str}")
 
 # Обработчик новых участников группы
-def new_member(update: Update, context: CallbackContext) -> None:
+async def new_member(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     for member in update.message.new_chat_members:
         if member.id == context.bot.id:
-            update.message.reply_text(
+            await update.message.reply_text(
                 "Привет! Я бот для напоминания о днях рождения. "
                 "Я буду напоминать о днях рождения участников и собирать wishlists."
             )
         else:
             user_id = str(member.id)
             if user_id not in birthdays:
-                context.bot.send_message(
+                await context.bot.send_message(
                     chat_id=user_id,
                     text="Привет! Пожалуйста, введите свою дату рождения в формате ДД.ММ.ГГГГ:"
                 )
                 return GET_BIRTHDATE
 
 # Основная функция
-def main() -> None:
+async def main() -> None:
     # Загрузка токена из файла
     TOKEN = load_token()
     
-    # Создаем Updater и передаем ему токен вашего бота
-    updater = Updater(TOKEN, use_context=True)
-
-    # Получаем диспетчер для регистрации обработчиков
-    dp = updater.dispatcher
+    # Создаем Application
+    application = Application.builder().token(TOKEN).build()
 
     # ConversationHandler для обработки диалогов
     conv_handler = ConversationHandler(
@@ -308,17 +304,17 @@ def main() -> None:
     )
 
     # Регистрируем обработчики
-    dp.add_handler(conv_handler)
-    dp.add_handler(CallbackQueryHandler(button_handler))
+    application.add_handler(conv_handler)
+    application.add_handler(CallbackQueryHandler(button_handler))
     
     # Запускаем проверку дней рождения каждый день в 13:00
-    job_queue = updater.job_queue
+    job_queue = application.job_queue
     job_queue.run_daily(check_birthdays, time=datetime.time(hour=13, minute=0))
 
     # Запускаем бота
     print("Бот запущен...")
-    updater.start_polling()
-    updater.idle()
+    await application.run_polling()
 
 if __name__ == '__main__':
-    main()
+    import asyncio
+    asyncio.run(main())
