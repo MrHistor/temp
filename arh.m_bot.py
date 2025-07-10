@@ -27,9 +27,11 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Константы состояний
+#SET_BIRTHDAY, SET_WISHLIST, ADD_WISHLIST_ITEM, UPDATE_WISHLIST = range(4)
+#ADMIN_USERNAME = "mr_jasp"  # Имя пользователя админа
 SET_BIRTHDAY, ADD_WISHLIST_ITEM, UPDATE_WISHLIST, ADMIN_ADD_BIRTHDAY = range(4)
-ADMIN_USERNAME = "mr_jasp" # Имя пользователя админа
-VIEW_OTHERS_WISHLIST, DELETE_ITEM = range(2)
+ADMIN_USERNAME = "mr_jasp"
+
 # Файлы для хранения данных
 BIRTHDAYS_FILE = "birthdays.json"
 WISHLISTS_FILE = "wishlists.json"
@@ -93,8 +95,7 @@ def main_menu_keyboard():
             [KeyboardButton("🎁 Мой wish-лист")],
             [KeyboardButton("✏️ Обновить wish-лист")],
             [KeyboardButton("🗑️ Удалить wish-лист")],
-            [KeyboardButton("📅 Все дни рождения")],
-            [KeyboardButton("👀 Wish-листы участников")]  # Новая кнопка
+            [KeyboardButton("📅 Все дни рождения")]
         ],
         resize_keyboard=True,
         input_field_placeholder="Выберите действие"
@@ -231,19 +232,16 @@ async def view_wishlist(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=main_menu_keyboard()
         )
         
-        # Создаем и отправляем файл
-        filename = f"wishlist_{user_id}.txt"
-        with open(filename, "w", encoding="utf-8") as f:
+        # Создаем текстовый файл с wish-листом
+        with open(f"wishlist_{user_id}.txt", "w", encoding="utf-8") as f:
             f.write(wishlist_text)
         
+        # Отправляем файл пользователю
         await update.message.reply_document(
-            document=open(filename, "rb"),
+            document=InputFile(f"wishlist_{user_id}.txt"),
             caption="Вот твой wish-лист в виде файла",
             reply_markup=main_menu_keyboard()
         )
-        
-        # Удаляем временный файл
-        os.remove(filename)
     else:
         await update.message.reply_text(
             "❌ У тебя нет wish-листа. Нажми '✏️ Обновить wish-лист' чтобы создать",
@@ -260,24 +258,21 @@ async def update_wishlist_start(update: Update, context: ContextTypes.DEFAULT_TY
             "📝 У тебя еще нет wish-листа. Отправь первую позицию:",
             reply_markup=ReplyKeyboardRemove()
         )
+        context.user_data['wishlist_creation'] = True
         return ADD_WISHLIST_ITEM
     
-    # Показываем текущий wish-лист с кнопками для управления
+    # Показываем текущий wish-лист
     wishlist_text = "\n".join([f"{i+1}. {item}" for i, item in enumerate(wishlists[user_id])])
-    
-    # Создаем клавиатуру для управления
-    keyboard = []
-    for i in range(len(wishlists[user_id])):
-        keyboard.append([KeyboardButton(f"❌ Удалить позицию {i+1}")])
-    
-    keyboard.append([KeyboardButton("➕ Добавить новую позицию")])
-    keyboard.append([KeyboardButton("✅ Завершить обновление")])
-    
     await update.message.reply_text(
         f"📝 Твой текущий wish-лист:\n\n{wishlist_text}\n\n"
-        "Выбери действие:",
-        reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+        "Отправь новую позицию для добавления или нажми /done для завершения",
+        reply_markup=ReplyKeyboardMarkup(
+            [[KeyboardButton("/done")]],
+            resize_keyboard=True
+        )
     )
+    
+    context.user_data['wishlist_creation'] = False
     return UPDATE_WISHLIST
 
 # Обновление wish-листа
@@ -351,37 +346,6 @@ async def handle_wishlist_file(update: Update, context: ContextTypes.DEFAULT_TYP
     
     return ConversationHandler.END
 
-async def delete_wishlist_item(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.message.from_user.id)
-    text = update.message.text
-    
-    # Извлекаем номер позиции из текста (пример: "❌ Удалить позицию 3")
-    try:
-        position = int(text.split()[-1]) - 1
-        if 0 <= position < len(wishlists[user_id]):
-            # Удаляем позицию
-            removed_item = wishlists[user_id].pop(position)
-            save_data(wishlists, WISHLISTS_FILE)
-            
-            await update.message.reply_text(
-                f"✅ Позиция удалена: {removed_item}",
-                reply_markup=main_menu_keyboard()
-            )
-            return ConversationHandler.END
-        else:
-            await update.message.reply_text(
-                "❌ Неверный номер позиции",
-                reply_markup=main_menu_keyboard()
-            )
-            return ConversationHandler.END
-    except Exception as e:
-        logger.error(f"Ошибка удаления позиции: {e}")
-        await update.message.reply_text(
-            "❌ Ошибка при удалении позиции",
-            reply_markup=main_menu_keyboard()
-        )
-        return ConversationHandler.END
-        
 # Удаление wish-листа
 async def delete_wishlist(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.message.from_user.id)
@@ -553,80 +517,12 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await delete_wishlist(update, context)
     elif text == "📅 Все дни рождения":
         await all_birthdays(update, context)
-    elif text == "👀 Wish-листы участников":
-        await show_users_list(update, context)
-    elif text.startswith("❌ Удалить позицию"):
-        await delete_wishlist_item(update, context)
-    elif text == "➕ Добавить новую позицию":
-        await update.message.reply_text(
-            "📝 Отправь новую позицию для wish-листа:",
-            reply_markup=ReplyKeyboardRemove()
-        )
-        return ADD_WISHLIST_ITEM
-    elif text == "✅ Завершить обновление":
-        await update.message.reply_text(
-            "✅ Wish-лист обновлен!",
-            reply_markup=main_menu_keyboard()
-        )
-        return ConversationHandler.END
     else:
         await update.message.reply_text(
             "Используй меню для навигации",
             reply_markup=main_menu_keyboard()
         )
 
-# Новая функция для показа списка участников
-async def show_users_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not birthdays:
-        await update.message.reply_text(
-            "❌ Нет зарегистрированных участников",
-            reply_markup=main_menu_keyboard()
-        )
-        return
-    
-    keyboard = []
-    for user_id, data in birthdays.items():
-        if user_id in wishlists and wishlists[user_id]:
-            username = data['username']
-            keyboard.append([KeyboardButton(f"👤 {username}")])
-    
-    if not keyboard:
-        await update.message.reply_text(
-            "❌ Нет участников с wish-листами",
-            reply_markup=main_menu_keyboard()
-        )
-        return
-    
-    keyboard.append([KeyboardButton("🔙 Назад")])
-    
-    await update.message.reply_text(
-        "Выбери участника для просмотра wish-листа:",
-        reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-    )
-    
-    return VIEW_OTHERS_WISHLIST
-
-# Функция для просмотра wish-листа другого участника
-async def view_others_wishlist(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    username = update.message.text[2:]  # Убираем эмодзи "👤 "
-    
-    # Находим пользователя по username
-    for user_id, data in birthdays.items():
-        if data['username'] == username and user_id in wishlists and wishlists[user_id]:
-            wishlist_text = "\n".join([f"{i+1}. {item}" for i, item in enumerate(wishlists[user_id])])
-            
-            await update.message.reply_text(
-                f"🎁 Wish-лист пользователя {username}:\n\n{wishlist_text}",
-                reply_markup=main_menu_keyboard()
-            )
-            return ConversationHandler.END
-    
-    await update.message.reply_text(
-        "❌ Wish-лист не найден",
-        reply_markup=main_menu_keyboard()
-    )
-    return ConversationHandler.END
-    
 # Основная функция
 def main():
     # Загрузка токена
@@ -647,8 +543,7 @@ def main():
     conv_handler = ConversationHandler(
         entry_points=[
             CommandHandler("start", start),
-            MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, new_member),
-            MessageHandler(filters.TEXT & filters.ChatType.PRIVATE, menu_handler)
+            MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, new_member)
         ],
         states={
             SET_BIRTHDAY: [
@@ -662,15 +557,13 @@ def main():
                 MessageHandler(filters.Document.TXT, handle_wishlist_file)
             ],
             UPDATE_WISHLIST: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, menu_handler),  # Обработка через menu_handler
-                CommandHandler("cancel", cancel)
+                MessageHandler(filters.TEXT & ~filters.COMMAND, update_wishlist),
+                CommandHandler("done", finish_wishlist),
+                CommandHandler("cancel", cancel),
+                MessageHandler(filters.Document.TXT, handle_wishlist_file)
             ],
             ADMIN_ADD_BIRTHDAY: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, admin_save_birthday),
-                CommandHandler("cancel", cancel)
-            ],
-            VIEW_OTHERS_WISHLIST: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, view_others_wishlist),
                 CommandHandler("cancel", cancel)
             ]
         },
