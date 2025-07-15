@@ -74,7 +74,7 @@ async def new_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             text=f"Привет, {user.full_name}! 🤖 Я бот напоминаний. Пожалуйста, отправьте вашу дату рождения (в формате YYYY-MM-DD), чтобы я мог напоминать другим участникам.\n\nОтправьте команду /register чтобы начать."
                         )
                     except Exception as e:
-                        logger.warning(f\"Не удалось отправить сообщение {user.full_name}: {e}\")
+                        logger.warning("Не удалось отправить сообщение {user.full_name}: {e}")
             return ConversationHandler.END
 
         if not member.is_bot:
