@@ -1,6 +1,7 @@
 import json
 import logging
 import re
+import os
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple, Optional
 
@@ -37,8 +38,10 @@ ADMIN_USERNAME = "mr_jasp"  # Администратор бота
 # Загрузка данных из JSON
 def load_data(filename: str) -> Dict:
     try:
-        with open(filename, "r") as f:
-            return json.load(f)
+        if os.path.exists(filename):
+            with open(filename, "r") as f:
+                return json.load(f)
+        return {}
     except (FileNotFoundError, json.JSONDecodeError):
         return {}
 
@@ -59,7 +62,8 @@ def is_valid_date(date_str: str) -> bool:
     try:
         day, month = map(int, date_str.split('.'))
         if 1 <= month <= 12 and 1 <= day <= 31:
-            datetime(year=2000, month=month, day=day)  # Проверка существования даты
+            # Проверка существования даты (игнорируем високосные года)
+            datetime(year=2000, month=month, day=day)
             return True
     except (ValueError, TypeError):
         return False
@@ -87,6 +91,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
     new_members = update.message.new_chat_members
+    bot_username = context.bot.username
     for member in new_members:
         if member.id == context.bot.id:  # Бота добавили в группу
             await update.message.reply_text(
@@ -95,12 +100,12 @@ async def handle_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "• Напоминаю о ДР за 2 недели и в день рождения\n"
                 "• Помогаю вести wish-листы\n"
                 "• Приветствую новых участников\n\n"
-                "Пожалуйста, напишите мне в ЛС (/start) чтобы указать свою дату рождения!"
+                f"Пожалуйста, напишите мне в ЛС (@{bot_username}) чтобы указать свою дату рождения!"
             )
         else:  # Новый участник группы
             await update.message.reply_text(
                 f"Добро пожаловать, {member.mention_html()}!\n"
-                "Пожалуйста, напишите мне в личные сообщения (@{context.bot.username}) "
+                f"Пожалуйста, напишите мне в личные сообщения (@{bot_username}) "
                 "чтобы указать свою дату рождения и создать wish-лист.",
                 parse_mode=ParseMode.HTML
             )
@@ -186,13 +191,15 @@ async def wishlist_button_handler(update: Update, context: ContextTypes.DEFAULT_
     elif data == "finish_wishlist":
         items = "\n".join([f"{i+1}. {item}" for i, item in enumerate(wishlists[user_id])])
         await query.edit_message_text(f"Ваш wish-лист создан:\n{items}")
-        del context.user_data["wishlist_state"]
+        if "wishlist_state" in context.user_data:
+            del context.user_data["wishlist_state"]
     
     elif data == "update_wishlist":
         if user_id in wishlists and wishlists[user_id]:
             keyboard = []
             for i, item in enumerate(wishlists[user_id]):
                 keyboard.append([InlineKeyboardButton(f"{i+1}. {item[:10]}...", callback_data=f"edit_{i}")])
+            keyboard.append([InlineKeyboardButton("Отмена", callback_data="cancel")])
             await query.edit_message_text(
                 "Выберите позицию для редактирования:",
                 reply_markup=InlineKeyboardMarkup(keyboard)
@@ -205,6 +212,9 @@ async def wishlist_button_handler(update: Update, context: ContextTypes.DEFAULT_
         context.user_data["edit_index"] = index
         context.user_data["wishlist_state"] = "awaiting_edit"
         await query.edit_message_text("Введите новую позицию:")
+    
+    elif data == "cancel":
+        await query.edit_message_text("Обновление отменено.")
 
 async def handle_wishlist_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
@@ -216,7 +226,8 @@ async def handle_wishlist_update(update: Update, context: ContextTypes.DEFAULT_T
         wishlists[user_id][index] = text
         save_data(wishlists, WISHLISTS_FILE)
         del context.user_data["edit_index"]
-        del context.user_data["wishlist_state"]
+        if "wishlist_state" in context.user_data:
+            del context.user_data["wishlist_state"]
         
         items = "\n".join([f"{i+1}. {item}" for i, item in enumerate(wishlists[user_id])])
         await update.message.reply_text(f"Позиция обновлена! Ваш wish-лист:\n{items}")
@@ -252,7 +263,8 @@ async def handle_birthday_input(update: Update, context: ContextTypes.DEFAULT_TY
     birthdays[user_id] = text
     save_data(birthdays, BIRTHDAYS_FILE)
     
-    del context.user_data["awaiting_birthday"]
+    if "awaiting_birthday" in context.user_data:
+        del context.user_data["awaiting_birthday"]
     await update.message.reply_text("Дата рождения сохранена! Теперь создайте wish-лист с помощью /my_wishlist")
 
 async def show_all_birthdays(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -273,7 +285,8 @@ async def show_all_birthdays(update: Update, context: ContextTypes.DEFAULT_TYPE)
             if uid in wishlists and wishlists[uid]:
                 response += " [есть wish-лист]"
             response += "\n"
-        except Exception:
+        except Exception as e:
+            logger.error(f"Ошибка при получении информации о пользователе {uid}: {e}")
             continue
     
     await update.message.reply_text(response)
@@ -302,7 +315,6 @@ async def add_birthday_admin(update: Update, context: ContextTypes.DEFAULT_TYPE)
 # ====================== Напоминания ======================
 
 async def birthday_reminder(context: ContextTypes.DEFAULT_TYPE):
-    job = context.job
     now = datetime.now()
     today_str = now.strftime("%d.%m")
     
@@ -320,25 +332,22 @@ async def birthday_reminder(context: ContextTypes.DEFAULT_TYPE):
     for uid in today_birthday_users:
         try:
             await context.bot.send_message(
-                uid,
+                int(uid),
                 "🎉 С Днем Рождения! 🎂\n\n"
                 "Не забудьте обновить ваш wish-лист с помощью /update_wishlist"
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error(f"Ошибка при отправке напоминания: {e}")
     
     for uid in future_birthday_users:
         try:
-            user = await context.bot.get_chat(uid)
-            name = user.first_name or user.username or f"Пользователь {uid}"
-            
             await context.bot.send_message(
-                uid,
+                int(uid),
                 f"Через 2 недели ({in_two_weeks}) у вас День Рождения!\n"
                 "Проверьте ваш wish-лист: /my_wishlist"
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error(f"Ошибка при отправке напоминания: {e}")
 
 # ====================== Основная функция ======================
 
@@ -370,7 +379,7 @@ def main():
     
     # Обработчики callback-кнопок
     application.add_handler(CallbackQueryHandler(create_wishlist_start, pattern="^create_wishlist$"))
-    application.add_handler(CallbackQueryHandler(wishlist_button_handler, pattern="^(add_more_items|finish_wishlist|update_wishlist|edit_\d+)$"))
+    application.add_handler(CallbackQueryHandler(wishlist_button_handler, pattern="^(add_more_items|finish_wishlist|update_wishlist|edit_\d+|cancel)$"))
     
     # Обработчик новых участников
     application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, handle_new_member))
