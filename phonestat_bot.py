@@ -172,13 +172,13 @@ def format_results(data):
     
     return (
         "🔍 Результаты анализа лога:\n\n"
+        f"📱 Build: {data['build']}\n\n"
+        f"💾 RAM: {data['ram']}\n\n"
+        f"💽 ROM: {data['rom']}\n\n"
         "🔋 Батарея:\n"
         f"{battery_info}"
         f"• Циклы заряда: {data['cycles']}\n\n"
         #📱💾💽
-        f"Build: {data['build']}\n\n"
-        f"RAM: {data['ram']}\n\n"
-        f"ROM: {data['rom']}\n\n"
         "🖥️ Дисплей:\n"
         f"• ID: {data['display_id']}\n"
         f"• Разрешение: {data['resolution']}\n"
