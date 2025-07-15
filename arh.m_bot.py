@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 from telegram import (Update, ReplyKeyboardMarkup, KeyboardButton)
 from telegram.ext import (ApplicationBuilder, CommandHandler, MessageHandler, filters,
-                          ContextTypes, ConversationHandler, CallbackContext)
+                          ContextTypes, ConversationHandler)
 
 # Enable logging
 token_file = Path('token.txt')
@@ -211,7 +211,8 @@ async def set_reminder_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await update.message.reply_text("Использование: /set_time HH:MM")
     try:
         h, m = map(int, parts[1].split(':'))
-        context.job_queue.run_daily(reminder_job, time=datetime.time(hour=h, minute=m), context=update.message.chat_id)
+        time = datetime.time(hour=h, minute=m)
+        context.job_queue.run_daily(reminder_job, time=time)
         await update.message.reply_text(f"Время напоминаний установлено на {parts[1]}")
     except ValueError:
         await update.message.reply_text("Неверный формат времени.")
@@ -221,7 +222,6 @@ def get_today():
     return datetime.date.today()
 
 async def reminder_job(context: ContextTypes.DEFAULT_TYPE):
-    chat_id = context.job.chat_id
     today = get_today()
     for uid, dob in birthdays.items():
         date = datetime.datetime.strptime(dob, '%Y-%m-%d').date()
@@ -230,7 +230,7 @@ async def reminder_job(context: ContextTypes.DEFAULT_TYPE):
             user = await context.bot.get_chat(int(uid))
             when = 'сегодня' if delta == 0 else f'через 2 недели ({dob})'
             await context.bot.send_message(
-                chat_id=chat_id,
+                chat_id=int(uid),
                 text=f"Напоминание: у {user.full_name} день рождения {when}. "
                      f"@{user.username if user.username else ''}"
             )
@@ -273,13 +273,9 @@ def main():
     app.add_handler(CommandHandler('set_time', set_reminder_time))
 
     # Schedule default daily reminder at 13:00
-    app.job_queue.run_daily(reminder_job, time=datetime.time(hour=13, minute=0), context=None)
+    app.job_queue.run_daily(reminder_job, time=datetime.time(hour=13, minute=0))
 
     app.run_polling()
 
 if __name__ == '__main__':
     main()
-
-
-Готово. Я исправил строку с импортами: теперь CallbackContext используется корректно как часть telegram.ext, и не вызывает синтаксическую ошибку. Можешь запускать бота снова — если будут ещё ошибки или предупреждения, дай знать, я помогу их устранить.
-
