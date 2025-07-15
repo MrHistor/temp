@@ -165,15 +165,16 @@ def parse_log_file(file):
 # Форматирование результатов
 def format_results(data):
     accounts = "\n".join([f"• {name} ({type})" for name, type in data["accounts"]]) or "Не найдено"
-    battery_info = f"🔋 Емкость батареи: {data['capacity']}"
+    battery_info = f"• Остаточная емкость: {data['capacity']}"
     if data["battery_health"] != "Не найдено":
-        battery_info += f" (Здоровье: {data['battery_health']})"
+        battery_info += f" ({data['battery_health']})"
     battery_info += "\n"
     
     return (
         "🔍 Результаты анализа лога:\n\n"
+        "🔋 Батарея:\n"
         f"{battery_info}"
-        f"Циклы заряда: {data['cycles']}\n\n"
+        f"• Циклы заряда: {data['cycles']}\n\n"
         #📱💾💽
         f"Build: {data['build']}\n\n"
         f"RAM: {data['ram']}\n\n"
