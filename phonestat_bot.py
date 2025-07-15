@@ -26,6 +26,7 @@ def parse_log_file(file):
         "manufacturer": "Не найдено",
         "manufacture_date": "Не найдено",
         "brightness": "Не найдено",
+        "battery_health": "Не найдено",
         "accounts": []
     }
     
@@ -42,6 +43,7 @@ def parse_log_file(file):
         "manufacturer": re.compile(r'manufacturerPnpId=(\w+)'),
         "manufacture_date": re.compile(r'ManufactureDate\{week=(\d+), year=(\d+)\}'),
         "brightness": re.compile(r'mNits=\[([\d\., ]+)\]'),
+        "battery_drain": re.compile(r'mDreamsBatteryLevelDrain=(-?\d+)'),
         "account": re.compile(r'Account\s*\{name=([^,]+?),\s*type=([^\}]+?)\}')
     }
 
@@ -68,6 +70,13 @@ def parse_log_file(file):
                     capacity += "mAh"
                 data["capacity"] = capacity
                 data["cycles"] = match.group(2)
+        
+        elif "mDreamsBatteryLevelDrain" in line_str and data["battery_health"] == "Не найдено":
+            match = patterns["battery_drain"].search(line_str)
+            if match:
+                drain = int(match.group(1))
+                health = 100 - drain
+                data["battery_health"] = f"{health}%"
                 
         elif "Build:" in line_str and data["build"] == "Не найдено":
             match = patterns["build"].search(line_str)
@@ -156,11 +165,14 @@ def parse_log_file(file):
 # Форматирование результатов
 def format_results(data):
     accounts = "\n".join([f"• {name} ({type})" for name, type in data["accounts"]]) or "Не найдено"
+    battery_info = f"🔋 Емкость батареи: {data['capacity']}"
+    if data["battery_health"] != "Не найдено":
+        battery_info += f" (Здоровье: {data['battery_health']})"
+    battery_info += "\n"
     
     return (
         "🔍 Результаты анализа лога:\n\n"
-        "🔋 Батарея:\n"
-        f"Остаточная емкость батареи: {data['capacity']}\n"
+        f"{battery_info}"
         f"Циклы заряда: {data['cycles']}\n\n"
         #📱💾💽
         f"Build: {data['build']}\n\n"
