@@ -141,13 +141,21 @@ async def show_instruction(update: Update, context):
     )
 
 # Возврат к главному меню
-#async def back_to_main(update: Update, context):
-#    query = update.callback_query
-#    await query.answer()
-#    await query.edit_message_text(
-#        text="Отправь мне ZIP-файл с логом Android для анализа.",
-#        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📖 Показать инструкцию", callback_data='instruction')]])
-#    )
+async def back_to_main(update: Update, context):
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text(
+        text= (
+        "Я помогу проанализировать Bug Report твоего Android-устройства.\n\n"
+        "Я покажу информацию о:\n"
+        "- Батарее (емкость и циклы заряда)\n"
+        "- Номер сборки\n"
+        "- Характеристиках RAM и ROM\n"
+        "- Привязанных аккаунтах\n\n"
+        "Отправь мне ZIP-файл с логом Android для анализа."
+        ),
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📖 Показать инструкцию", callback_data='instruction')]])
+    )
 
 # Обработчик ZIP-файлов
 async def handle_zip(update: Update, context):
@@ -198,7 +206,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_zip))
     app.add_handler(CallbackQueryHandler(show_instruction, pattern='instruction'))
-    app.add_handler(CallbackQueryHandler(start, pattern='back'))
+    app.add_handler(CallbackQueryHandler(back_to_main, pattern='back'))
     
     app.run_polling()
 
