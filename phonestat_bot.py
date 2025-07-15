@@ -130,7 +130,7 @@ def parse_log_file(file):
                             unique_rates.append(rate_value)
                     except ValueError:
                         continue
-                data["refresh_rates"] = ", ".join(unique_rates) + "Hz"
+                data["refresh_rates"] = ", ".join(unique_rates) + " Hz"
                 
         elif "manufacturerPnpId" in line_str and data["manufacturer"] == "Не найдено":
             match = patterns["manufacturer"].search(line_str)
@@ -140,7 +140,7 @@ def parse_log_file(file):
         elif "ManufactureDate" in line_str and data["manufacture_date"] == "Не найдено":
             match = patterns["manufacture_date"].search(line_str)
             if match:
-                data["manufacture_date"] = f"{match.group(2)}г."
+                data["manufacture_date"] = f"{match.group(2)} г."
                 
         elif "mNits" in line_str and data["brightness"] == "Не найдено":
             match = patterns["brightness"].search(line_str)
@@ -149,7 +149,7 @@ def parse_log_file(file):
                 if nits:
                     # Берем максимальное значение яркости
                     max_brightness = max(nits)
-                    data["brightness"] = f"{int(max_brightness)}Нит"
+                    data["brightness"] = f"{int(max_brightness)} Nit"
                 
     return data
 
@@ -159,11 +159,13 @@ def format_results(data):
     
     return (
         "🔍 Результаты анализа лога:\n\n"
-        f"🔋 Остаточная емкость батареи: {data['capacity']}\n"
-        f"🔄 Циклы заряда: {data['cycles']}\n"
-        f"📱 Build: {data['build']}\n"
-        f"💾 RAM: {data['ram']}\n"
-        f"💽 ROM: {data['rom']}\n\n"
+        "🔋 Батарея:\n"
+        f"Остаточная емкость батареи: {data['capacity']}\n"
+        f"Циклы заряда: {data['cycles']}\n\n"
+        #📱💾💽
+        f"Build: {data['build']}\n\n"
+        f"RAM: {data['ram']}\n\n"
+        f"ROM: {data['rom']}\n\n"
         "🖥️ Дисплей:\n"
         f"• ID: {data['display_id']}\n"
         f"• Разрешение: {data['resolution']}\n"
@@ -171,7 +173,7 @@ def format_results(data):
         f"• Частота обновления: {data['refresh_rates']}\n"
         f"• Производитель: {data['manufacturer']}\n"
         f"• Дата производства: {data['manufacture_date']}\n"
-        f"• Яркость: {data['brightness']}\n\n"
+        f"• Максимальная яркость: {data['brightness']}\n\n"
         f"👥 Аккаунты:\n{accounts}"
     )
 
