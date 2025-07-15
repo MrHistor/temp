@@ -19,6 +19,13 @@ def parse_log_file(file):
         "build": "Не найдено",
         "ram": "Не найдено",
         "rom": "Не найдено",
+        "display_id": "Не найдено",
+        "resolution": "Не найдено",
+        "dpi": "Не найдено",
+        "refresh_rates": "Не найдено",
+        "manufacturer": "Не найдено",
+        "manufacture_date": "Не найдено",
+        "brightness": "Не найдено",
         "accounts": []
     }
     
@@ -28,6 +35,13 @@ def parse_log_file(file):
         "build": re.compile(r'Build:\s*([^\s]+)'),
         "ram": re.compile(r'androidboot\.hardware\.ddr\s*=\s*"([^"]+)"\s*,\s*"([^"]+)"\s*,\s*"([^"]+)"'),
         "rom": re.compile(r'androidboot\.hardware\.ufs\s*=\s*"([^"]+)"\s*,\s*"([^"]+)"'),
+        "display_id": re.compile(r'mPhysicalDisplayId=(\d+)'),
+        "resolution": re.compile(r'mActiveSfDisplayMode=.*?width=(\d+), height=(\d+)'),
+        "dpi": re.compile(r'mActiveSfDisplayMode=.*?xDpi=([\d.]+), yDpi=([\d.]+)'),
+        "refresh_rates": re.compile(r'mSupportedRefreshRates=\[([\d\., ]+)\]'),
+        "manufacturer": re.compile(r'manufacturerPnpId=(\w+)'),
+        "manufacture_date": re.compile(r'ManufactureDate\{week=(\d+), year=(\d+)\}'),
+        "brightness": re.compile(r'mNits=\[([\d\., ]+)\]'),
         "account": re.compile(r'Account\s*\{name=([^,]+?),\s*type=([^\}]+?)\}')
     }
 
@@ -82,6 +96,60 @@ def parse_log_file(file):
                     if account_id not in seen_accounts:
                         seen_accounts.add(account_id)
                         data["accounts"].append((account_name, account_type))
+        
+        elif "mPhysicalDisplayId" in line_str and data["display_id"] == "Не найдено":
+            match = patterns["display_id"].search(line_str)
+            if match:
+                data["display_id"] = match.group(1)
+                
+        elif "mActiveSfDisplayMode" in line_str and data["resolution"] == "Не найдено":
+            match_res = patterns["resolution"].search(line_str)
+            match_dpi = patterns["dpi"].search(line_str)
+            
+            if match_res:
+                data["resolution"] = f"{match_res.group(1)}x{match_res.group(2)}"
+                
+            if match_dpi:
+                x_dpi = float(match_dpi.group(1))
+                y_dpi = float(match_dpi.group(2))
+                # Рассчет DPI по формуле √(xDpi^2 + yDpi^2)
+                dpi_value = round((x_dpi**2 + y_dpi**2)**0.5)
+                data["dpi"] = str(dpi_value)
+                
+        elif "mSupportedRefreshRates" in line_str and data["refresh_rates"] == "Не найдено":
+            match = patterns["refresh_rates"].search(line_str)
+            if match:
+                rates = [rate.strip() for rate in match.group(1).split(',')]
+                # Фильтрация уникальных частот и преобразование в целые
+                unique_rates = []
+                for rate in rates:
+                    try:
+                        # Преобразование в float и округление до целого
+                        rate_value = str(int(float(rate)))
+                        if rate_value not in unique_rates:
+                            unique_rates.append(rate_value)
+                    except ValueError:
+                        continue
+                data["refresh_rates"] = ", ".join(unique_rates) + "Hz"
+                
+        elif "manufacturerPnpId" in line_str and data["manufacturer"] == "Не найдено":
+            match = patterns["manufacturer"].search(line_str)
+            if match:
+                data["manufacturer"] = match.group(1)
+                
+        elif "ManufactureDate" in line_str and data["manufacture_date"] == "Не найдено":
+            match = patterns["manufacture_date"].search(line_str)
+            if match:
+                data["manufacture_date"] = f"{match.group(2)}г."
+                
+        elif "mNits" in line_str and data["brightness"] == "Не найдено":
+            match = patterns["brightness"].search(line_str)
+            if match:
+                nits = [float(nit.strip()) for nit in match.group(1).split(',')]
+                if nits:
+                    # Берем максимальное значение яркости
+                    max_brightness = max(nits)
+                    data["brightness"] = f"{int(max_brightness)}Нит"
                 
     return data
 
@@ -96,6 +164,14 @@ def format_results(data):
         f"📱 Build: {data['build']}\n"
         f"💾 RAM: {data['ram']}\n"
         f"💽 ROM: {data['rom']}\n\n"
+        "🖥️ Дисплей:\n"
+        f"• ID: {data['display_id']}\n"
+        f"• Разрешение: {data['resolution']}\n"
+        f"• DPI: {data['dpi']}\n"
+        f"• Частота обновления: {data['refresh_rates']}\n"
+        f"• Производитель: {data['manufacturer']}\n"
+        f"• Дата производства: {data['manufacture_date']}\n"
+        f"• Яркость: {data['brightness']}\n\n"
         f"👥 Аккаунты:\n{accounts}"
     )
 
@@ -110,6 +186,7 @@ async def start(update: Update, context):
         "- Батарее (емкость и циклы заряда)\n"
         "- Номер сборки\n"
         "- Характеристиках RAM и ROM\n"
+        "- Параметрах дисплея (разрешение, DPI, яркость)\n"
         "- Привязанных аккаунтах\n\n"
         "Просто отправь мне ZIP-файл с логом!"
     )
@@ -151,6 +228,7 @@ async def back_to_main(update: Update, context):
         "- Батарее (емкость и циклы заряда)\n"
         "- Номер сборки\n"
         "- Характеристиках RAM и ROM\n"
+        "- Параметрах дисплея (разрешение, DPI, яркость)\n"
         "- Привязанных аккаунтах\n\n"
         "Отправь мне ZIP-файл с логом Android для анализа."
         ),
