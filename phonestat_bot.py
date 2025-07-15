@@ -30,47 +30,65 @@ def parse_log_file(file):
         "sdk": re.compile(r'Android SDK version:\s*(\d+)'),
         "ram": re.compile(r'androidboot\.hardware\.ddr\s*=\s*"([^"]+)"\s*,\s*"([^"]+)"\s*,\s*"([^"]+)"'),
         "rom": re.compile(r'androidboot\.hardware\.ufs\s*=\s*"([^"]+)"\s*,\s*"([^"]+)"'),
-        "account": re.compile(r'Account\s*\{name=([^,]+),\s*type=([^\}]+)\}')
+        "account": re.compile(r'Account\s*\{name=([^,]+?),\s*type=([^\}]+?)\}')
     }
+
+    # Множество для отслеживания уникальных аккаунтов
+    seen_accounts = set()
 
     # Построчная обработка файла
     for line in file:
-        line = line.decode('utf-8', errors='ignore')
-        
+        try:
+            # Декодирование с обработкой ошибок
+            line_str = line.decode('utf-8', errors='ignore')
+        except AttributeError:
+            line_str = line
+            
         # Поиск данных в строке
-        if "healthd" in line and not data["capacity"]:
-            match = patterns["healthd"].search(line)
+        if "healthd" in line_str and data["capacity"] == "Не найдено":
+            match = patterns["healthd"].search(line_str)
             if match:
-                capacity = match.group(1)[:-3] + "mAh"  # Удаляем 3 нуля + добавляем mAh
+                capacity = match.group(1)
+                # Удаляем три нуля с конца и добавляем mAh
+                if capacity.endswith('000'):
+                    capacity = capacity[:-3] + "mAh"
+                else:
+                    capacity += "mAh"
                 data["capacity"] = capacity
                 data["cycles"] = match.group(2)
                 
-        elif "Build:" in line and not data["build"]:
-            match = patterns["build"].search(line)
+        elif "Build:" in line_str and data["build"] == "Не найдено":
+            match = patterns["build"].search(line_str)
             if match:
                 data["build"] = match.group(1)
                 
-        elif "Android SDK version:" in line and not data["sdk_version"]:
-            match = patterns["sdk"].search(line)
+        elif "Android SDK version:" in line_str and data["sdk_version"] == "Не найдено":
+            match = patterns["sdk"].search(line_str)
             if match:
                 data["sdk_version"] = match.group(1)
                 
-        elif "androidboot.hardware.ddr" in line and not data["ram"]:
-            match = patterns["ram"].search(line)
+        elif "androidboot.hardware.ddr" in line_str and data["ram"] == "Не найдено":
+            match = patterns["ram"].search(line_str)
             if match:
                 data["ram"] = f"{match.group(1)}, {match.group(2)}, {match.group(3)}"
                 
-        elif "androidboot.hardware.ufs" in line and not data["rom"]:
-            match = patterns["rom"].search(line)
+        elif "androidboot.hardware.ufs" in line_str and data["rom"] == "Не найдено":
+            match = patterns["rom"].search(line_str)
             if match:
                 data["rom"] = f"{match.group(1)}, {match.group(2)}"
                 
-        elif "Account {" in line:
-            match = patterns["account"].search(line)
+        elif "Account {" in line_str:
+            match = patterns["account"].search(line_str)
             if match:
                 account_name = match.group(1).strip()
                 account_type = match.group(2).strip()
-                data["accounts"].append((account_name, account_type))
+                
+                # Фильтрация аккаунтов по наличию '@' и удаление дубликатов
+                if '@' in account_name:
+                    account_id = f"{account_name.lower()}|{account_type.lower()}"
+                    if account_id not in seen_accounts:
+                        seen_accounts.add(account_id)
+                        data["accounts"].append((account_name, account_type))
                 
     return data
 
@@ -86,15 +104,26 @@ def format_results(data):
         f"📱 Android SDK: {data['sdk_version']}\n"
         f"💾 RAM: {data['ram']}\n"
         f"💽 ROM: {data['rom']}\n\n"
-        f"👥 Аккаунты:\n{accounts}"
+        f"👥 Аккаунты (только с email):\n{accounts}"
     )
 
 # Обработчик команды /start
 async def start(update: Update, context):
     keyboard = [[InlineKeyboardButton("📖 Показать инструкцию", callback_data='instruction')]]
     reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    welcome_message = (
+        "👋 Привет! Я помогу проанализировать Bug Report твоего Android-устройства.\n\n"
+        "📱 Я покажу информацию о:\n"
+        "- Батарее (емкость и циклы заряда)\n"
+        "- Версии прошивки и Android SDK\n"
+        "- Характеристиках RAM и ROM\n"
+        "- Привязанных аккаунтах\n\n"
+        "Просто отправь мне ZIP-файл с логом!"
+    )
+    
     await update.message.reply_text(
-        "Привет! Отправь мне ZIP-файл с логом Android для анализа.",
+        welcome_message,
         reply_markup=reply_markup
     )
 
@@ -146,7 +175,11 @@ async def handle_zip(update: Update, context):
     try:
         # Обработка ZIP-архива
         with zipfile.ZipFile(file_stream) as z:
-            log_files = [f for f in z.namelist() if f.startswith('bugreport') and f.endswith('.txt')]
+            # Ищем лог-файл в корне и поддиректориях
+            log_files = []
+            for file_info in z.infolist():
+                if "bugreport" in file_info.filename and file_info.filename.endswith('.txt'):
+                    log_files.append(file_info.filename)
             
             if not log_files:
                 await message.reply_text("❌ Файл лога bugreport*.txt не найден в архиве.")
