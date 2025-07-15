@@ -81,8 +81,8 @@ async def new_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(
                 f\"Добро пожаловать, {member.full_name}! 👋\\n\"\n
                 \"Пожалуйста, отправьте дату вашего рождения в формате YYYY-MM-DD.\")\n
-            return ASK_DOB\n
-
+            return ASK_DOB
+            
     return ConversationHandler.END
 
 async def ask_dob(update: Update, context: ContextTypes.DEFAULT_TYPE):
