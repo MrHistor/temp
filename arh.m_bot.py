@@ -59,12 +59,30 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def new_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for member in update.message.new_chat_members:
-        if member.is_bot:
-            continue
-        await update.message.reply_text(
-            f"Добро пожаловать, {member.full_name}! 👋\n" +
-            "Пожалуйста, отправьте дату вашего рождения в формате YYYY-MM-DD.")
-        return ASK_DOB
+        if member.id == context.bot.id:
+            # Бот был добавлен — запускаем опрос участников
+            chat = update.effective_chat
+            admins = await context.bot.get_chat_administrators(chat.id)
+            all_ids = [admin.user for admin in admins if not admin.user.is_bot]
+
+            for user in all_ids:
+                user_id = str(user.id)
+                if user_id not in birthdays:
+                    try:
+                        await context.bot.send_message(
+                            chat_id=user.id,
+                            text=f"Привет, {user.full_name}! 🤖 Я бот напоминаний. Пожалуйста, отправьте вашу дату рождения (в формате YYYY-MM-DD), чтобы я мог напоминать другим участникам.\n\nОтправьте команду /register чтобы начать."
+                        )
+                    except Exception as e:
+                        logger.warning(f\"Не удалось отправить сообщение {user.full_name}: {e}\")
+            return ConversationHandler.END
+
+        if not member.is_bot:
+            await update.message.reply_text(
+                f\"Добро пожаловать, {member.full_name}! 👋\\n\"\n
+                \"Пожалуйста, отправьте дату вашего рождения в формате YYYY-MM-DD.\")\n
+            return ASK_DOB\n
+
     return ConversationHandler.END
 
 async def ask_dob(update: Update, context: ContextTypes.DEFAULT_TYPE):
