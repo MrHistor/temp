@@ -388,8 +388,11 @@ def main():
     job_queue = application.job_queue
     job_queue.run_daily(birthday_reminder, time=datetime.strptime("13:00", "%H:%M").time())
     
-    # Настройка команд меню
-    application.post_init(setup_commands)
+    # Настройка команд меню - ИСПРАВЛЕНИЕ:
+    async def post_init_wrapper(application: Application):
+        await setup_commands(application)
+    
+    application.post_init(post_init_wrapper)
     
     # Запуск бота
     application.run_polling(allowed_updates=Update.ALL_TYPES)
