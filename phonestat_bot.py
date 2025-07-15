@@ -17,7 +17,6 @@ def parse_log_file(file):
         "capacity": "Не найдено",
         "cycles": "Не найдено",
         "build": "Не найдено",
-        "sdk_version": "Не найдено",
         "ram": "Не найдено",
         "rom": "Не найдено",
         "accounts": []
@@ -27,7 +26,6 @@ def parse_log_file(file):
     patterns = {
         "healthd": re.compile(r'healthd:.*fc=(\d+).*cc=(\d+)'),
         "build": re.compile(r'Build:\s*([^\s]+)'),
-        "sdk": re.compile(r'Android SDK version:\s*(\d+)'),
         "ram": re.compile(r'androidboot\.hardware\.ddr\s*=\s*"([^"]+)"\s*,\s*"([^"]+)"\s*,\s*"([^"]+)"'),
         "rom": re.compile(r'androidboot\.hardware\.ufs\s*=\s*"([^"]+)"\s*,\s*"([^"]+)"'),
         "account": re.compile(r'Account\s*\{name=([^,]+?),\s*type=([^\}]+?)\}')
@@ -62,11 +60,6 @@ def parse_log_file(file):
             if match:
                 data["build"] = match.group(1)
                 
-        elif "Android SDK version:" in line_str and data["sdk_version"] == "Не найдено":
-            match = patterns["sdk"].search(line_str)
-            if match:
-                data["sdk_version"] = match.group(1)
-                
         elif "androidboot.hardware.ddr" in line_str and data["ram"] == "Не найдено":
             match = patterns["ram"].search(line_str)
             if match:
@@ -98,13 +91,12 @@ def format_results(data):
     
     return (
         "🔍 Результаты анализа лога:\n\n"
-        f"🔋 Емкость батареи: {data['capacity']}\n"
+        f"🔋 Остаточная емкость батареи: {data['capacity']}\n"
         f"🔄 Циклы заряда: {data['cycles']}\n"
-        f"🏗️ Build: {data['build']}\n"
-        f"📱 Android SDK: {data['sdk_version']}\n"
+        f"📱 Build: {data['build']}\n"
         f"💾 RAM: {data['ram']}\n"
         f"💽 ROM: {data['rom']}\n\n"
-        f"👥 Аккаунты (только с email):\n{accounts}"
+        f"👥 Аккаунты:\n{accounts}"
     )
 
 # Обработчик команды /start
@@ -113,10 +105,10 @@ async def start(update: Update, context):
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     welcome_message = (
-        "👋 Привет! Я помогу проанализировать Bug Report твоего Android-устройства.\n\n"
-        "📱 Я покажу информацию о:\n"
+        "Привет! Я помогу проанализировать Bug Report твоего Android-устройства.\n\n"
+        "Я покажу информацию о:\n"
         "- Батарее (емкость и циклы заряда)\n"
-        "- Версии прошивки и Android SDK\n"
+        "- Номер сборки\n"
         "- Характеристиках RAM и ROM\n"
         "- Привязанных аккаунтах\n\n"
         "Просто отправь мне ZIP-файл с логом!"
@@ -133,7 +125,7 @@ async def show_instruction(update: Update, context):
     await query.answer()
     
     instruction = (
-        "📱 Как сделать Bug Report на Android:\n\n"
+        "Как сделать Bug Report на Android:\n\n"
         "1. Откройте 'Настройки' > 'О телефоне'\n"
         "2. Нажмите 7 раз на 'Номер сборки' для разблокировки режима разработчика\n"
         "3. Вернитесь в 'Настройки' > 'Система' > 'Для разработчиков'\n"
